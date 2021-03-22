@@ -23,7 +23,7 @@ namespace EncodingWithMESCustomStitchTwoAssets
     public class Program
     {
         private const string OutputFolder = @"Output";
-        private const string CustomTransform = "Custom_TwoLayerMp4_Png";
+        private const string TransformName = "Sample_H264MultipleBitrate720p";
         private const string InputMP4FileName = @"ignite.mp4";
         private const string BumperMP4FileName = @"Azure_Bumper.mp4";
         private const string DefaultStreamingEndpointName = "default";   // Change this to your Endpoint name.
@@ -107,7 +107,12 @@ namespace EncodingWithMESCustomStitchTwoAssets
             try
             {
                 // Ensure that you have customized encoding Transform.  This is really a one time setup operation.
-                Transform transform = await CreateCustomTransform(client, config.ResourceGroup, config.AccountName, CustomTransform);
+                //Transform transform = await CreateCustomTransform(client, config.ResourceGroup, config.AccountName, CustomTransform);
+
+                // Ensure that you have customized encoding Transform.  This is really a one time setup operation.
+                Transform transform = await EnsureTransformExists(client, config.ResourceGroup, config.AccountName,
+                    TransformName, preset: new BuiltInStandardEncoderPreset(EncoderNamedPreset.H264MultipleBitrate720p));
+
 
                 // Create a new input Asset and upload the 1st specified local video file into it. This is our video "bumper" to stitch to the front.
                 Asset inputAsset1 = await CreateInputAssetAsync(client, config.ResourceGroup, config.AccountName, inputAssetName1, BumperMP4FileName);
@@ -135,7 +140,7 @@ namespace EncodingWithMESCustomStitchTwoAssets
                     }
                 );
 
-                Job job = await SubmitJobAsync(client, config.ResourceGroup, config.AccountName, CustomTransform, jobName, inputSequence, outputAsset.Name);
+                Job job = await SubmitJobAsync(client, config.ResourceGroup, config.AccountName, TransformName, jobName, inputSequence, outputAsset.Name);
 
                 DateTime startedTime = DateTime.Now;
 
@@ -185,7 +190,7 @@ namespace EncodingWithMESCustomStitchTwoAssets
                         // Job finished. Cancel the timer.
                         tokenSource.Cancel();
                         // Get the latest status of the job.
-                        job = await client.Jobs.GetAsync(config.ResourceGroup, config.AccountName, CustomTransform, jobName);
+                        job = await client.Jobs.GetAsync(config.ResourceGroup, config.AccountName, TransformName, jobName);
                     }
                     else
                     {
@@ -202,7 +207,7 @@ namespace EncodingWithMESCustomStitchTwoAssets
                     // Polling is not a recommended best practice for production applications because of the latency it introduces.
                     // Overuse of this API may trigger throttling. Developers should instead use Event Grid and listen for the status events on the jobs
                     Console.WriteLine("Polling job status...");
-                    job = await WaitForJobToFinishAsync(client, config.ResourceGroup, config.AccountName, CustomTransform, jobName);
+                    job = await WaitForJobToFinishAsync(client, config.ResourceGroup, config.AccountName, TransformName, jobName);
                 }
                 finally
                 {
@@ -272,9 +277,38 @@ namespace EncodingWithMESCustomStitchTwoAssets
             finally
             {
                 Console.WriteLine("Cleaning up...");
-                await CleanUpAsync(client, config.ResourceGroup, config.AccountName, CustomTransform, jobName, inputAssetName1, outputAssetName,
+                await CleanUpAsync(client, config.ResourceGroup, config.AccountName, TransformName, jobName, inputAssetName1, outputAssetName,
                     locatorName, stopEndpoint, DefaultStreamingEndpointName);
             }
+        }
+
+        /// <summary>
+        /// If the specified transform exists, get that transform. If the it does not exist, creates a new transform
+        /// with the specified output. In this case, the output is set to encode a video using the passed in preset.
+        /// </summary>
+        /// <param name="client">The Media Services client.</param>
+        /// <param name="resourceGroupName">The name of the resource group within the Azure subscription.</param>
+        /// <param name="accountName">The Media Services account name.</param>
+        /// <param name="transformName">The name of the transform.</param>
+        /// <param name="preset">The preset.</param>
+        /// <returns>The transform found or created.</returns>
+        private static async Task<Transform> EnsureTransformExists(IAzureMediaServicesClient client, string resourceGroupName,
+            string accountName, string transformName, Preset preset)
+        {
+            Transform transform = client.Transforms.Get(resourceGroupName, accountName, transformName);
+
+            if (transform == null)
+            {
+                TransformOutput[] outputs = new TransformOutput[]
+                {
+                    new TransformOutput(preset),
+                };
+
+                Console.WriteLine("Creating a transform...");
+                transform = await client.Transforms.CreateOrUpdateAsync(resourceGroupName, accountName, transformName, outputs);
+            }
+
+            return transform;
         }
 
         /// <summary>
